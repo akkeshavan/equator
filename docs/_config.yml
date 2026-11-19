@@ -13,6 +13,8 @@ minima:
   social_links:
     - { platform: github, user_url: "https://github.com/akkeshavan/equator" }
 
+permalink: /:year/:month/:day/:title/
+
 plugins:
   - jekyll-feed
   - jekyll-seo-tag
