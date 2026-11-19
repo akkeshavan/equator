@@ -1,5 +1,7 @@
 # equator
 
+**Blog post**: [Can You Trust an AI to Rewrite Your Code?](https://akkeshavan.github.io/equator)
+
 Semantic equivalence checker for LLM-ported C++ → Rust code, using LLVM IR and Z3.
 
 Compiles both the original C++ and the AI-generated Rust to LLVM IR, symbolically executes each function into Z3 bit-vector formulas, and asks Z3 whether the two can ever disagree. UNSAT = proven equivalent over all 32-bit inputs. SAT = concrete counterexample.
@@ -97,4 +99,23 @@ jsmn/                   # Upstream jsmn source — clone separately (see above)
 
 ## How it works
 
-See the blog post for a full walkthrough: [Can You Trust an AI to Rewrite Your Code?](https://claude.ai/artifact/DoJz86yYCuMCUqSGftPP7v)
+See the blog post for a full walkthrough: [Can You Trust an AI to Rewrite Your Code?](https://akkeshavan.github.io/equator)
+
+---
+
+## GitHub Pages (blog)
+
+The `docs/` folder contains the Jekyll site that powers the blog.
+
+To enable it on your fork:
+1. Push to GitHub.
+2. Go to **Settings → Pages → Source**: Deploy from branch → Branch: `main`, Folder: `/docs`.
+3. The site will be live at `https://<your-username>.github.io/equator/`.
+
+To preview locally:
+```bash
+cd docs
+bundle install
+bundle exec jekyll serve
+# open http://localhost:4000/equator/
+```

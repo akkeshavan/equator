@@ -1,0 +1,18 @@
+title: "Equator"
+description: "Proving semantic equivalence between LLM-generated Rust and the C++ it came from."
+url: "https://akkeshavan.github.io"
+baseurl: "/equator"
+
+theme: minima
+
+author:
+  name: "Anand Keshavan"
+
+minima:
+  date_format: "%B %-d, %Y"
+  social_links:
+    - { platform: github, user_url: "https://github.com/akkeshavan/equator" }
+
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
