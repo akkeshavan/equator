@@ -329,7 +329,22 @@ That is: `n = 511` is a witness. The port returns `-1` for input 511; the spec r
 
 For bit-shift functions, the LLM converts shifts to multiplication before writing the theorem: `<< 7` becomes `* 128`, `<< 8` becomes `* 256`. This keeps the theorem in the linear fragment that `omega` handles.
 
-The proofs run in a **shared Mathlib workspace** (default: `~/.crucible/lean-workspace/`) downloaded once per machine. All four case studies share the same `lake exe cache get`-fetched oleans; no per-proof download is needed.
+The proofs run in a **shared Mathlib workspace** at `~/.crucible/lean-workspace/`, downloaded once per machine. All four case studies share the same pre-built `.olean` files; no per-proof download is needed. Set up once with:
+
+```bash
+mkdir -p ~/.crucible/lean-workspace
+cp crucible/lean/lakefile.lean crucible/lean/lean-toolchain ~/.crucible/lean-workspace/
+cd ~/.crucible/lean-workspace && lake update   # fetches ~8,600 cached oleans
+```
+
+The workspace path defaults to `~/.crucible/lean-workspace/` but can be overridden with the `CRUCIBLE_MATHLIB_DIR` environment variable — useful when sharing a workspace across multiple sibling projects on the same machine:
+
+```bash
+export CRUCIBLE_MATHLIB_DIR=/Users/anand-air/.crucible/lean-workspace
+python3 crucible.py scan case_studies.toml --ci
+```
+
+L7's runner (`layers/lean4.py`) invokes `lake env lean <proof_file>` from that directory, giving every proof access to all of Mathlib without any per-run initialisation.
 
 > **Manual review required.** The spec on the right-hand side of the theorem is LLM output. If the LLM incorrectly writes the spec — for instance, using `≤ 510` on both sides — `omega` closes the proof vacuously (both sides are identical) while the real bug goes undetected. Human review of the generated theorem is required before an L7 result is meaningful. That review — a human reading and signing off on the formal statement of what a function should compute — is itself a valuable step in a migration workflow.
 
