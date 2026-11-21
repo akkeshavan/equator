@@ -224,7 +224,7 @@ spec fn strtomode_spec(n: int) -> int {
 }
 ```
 
-**A pure core `fn`** — the algorithmic logic from the Rust port, stripped of the FFI boundary (`CStr::from_ptr`, null checks, etc.), with an `ensures` clause tying it to the spec:
+**A pure core `fn`** — the algorithmic logic from the Rust port, stripped of the FFI boundary (`CStr::from_ptr`, null checks, etc.) and the parsing step (`strtol`). The stripping is deliberate: `strtol` is a standard library call assumed correct; the verifiable property is the range check and return value logic applied *after* parsing, starting from the already-parsed integer `n`. The pure core takes `n: i64` directly — Verus proves the range check and return value formula, not the conversion from string to integer:
 
 ```rust
 fn strtomode_pure(n: i64) -> (result: i64)
@@ -316,7 +316,7 @@ theorem strtomode_spec_ok (n : Int) :
 ```
 
 The `omega` tactic is a linear arithmetic decision procedure. It either:
-- **Closes the goal** (exit 0) — the two expressions agree for every possible `n : Int`. This is a machine-verified proof that the implementation is correct. No test cases are needed; the proof covers all inputs.
+- **Closes the goal** (exit 0) — the two expressions agree for every possible `n : Int`. This is a machine-checked proof that the LLM's extracted model of the implementation is correct. No test cases are needed; the proof covers all inputs of the extracted model.
 - **Fails with a counterexample** (exit 1) — reports a witness value that makes the two sides differ.
 
 For the `strtomode` example above, `omega` outputs:
@@ -340,7 +340,7 @@ cd ~/.crucible/lean-workspace && lake update   # fetches ~8,600 cached oleans
 The workspace path defaults to `~/.crucible/lean-workspace/` but can be overridden with the `CRUCIBLE_MATHLIB_DIR` environment variable — useful when sharing a workspace across multiple sibling projects on the same machine:
 
 ```bash
-export CRUCIBLE_MATHLIB_DIR=/Users/anand-air/.crucible/lean-workspace
+export CRUCIBLE_MATHLIB_DIR=$HOME/.crucible/lean-workspace
 python3 crucible.py scan case_studies.toml --ci
 ```
 
@@ -352,7 +352,7 @@ L7's runner (`layers/lean4.py`) invokes `lake env lean <proof_file>` from that d
 
 ## Case Studies
 
-I ran Crucible against four function pairs drawn from real security-critical code. The tables below use the pipeline's four verdict labels: **PASS** (no finding), **AUTO_FIX** (finding recorded automatically in CI mode — includes confirmed divergences and omega counterexamples), **REVIEW** (tool found something requiring human judgement — Verus postcondition failures, Kani unwind-bound hits, Miri UB), and **ABORT** (not seen in these studies).
+I ran Crucible against four function pairs drawn from real security-critical code. The tables below use the pipeline's four verdict labels: **PASS** (no finding), **AUTO_FIX** (finding recorded automatically in CI mode — includes confirmed divergences, omega counterexamples, and LLM synthesis failures where the tool's required input could not be generated correctly, e.g., a Lean4 theorem using an unsupported type), **REVIEW** (tool found something requiring human judgement — Verus postcondition failures, Kani unwind-bound hits, Miri UB), and **ABORT** (not seen in these studies).
 
 ### Case Study 1: `sudo_hexchar` (synthetic port)
 
@@ -420,7 +420,7 @@ Both L3.5 and L7 provide stronger guarantees than L2. The L2 fuzz result says "t
 
 ### Case Study 4: `mp4_read_fourcc` (mp4parse-rust, bit-shift off-by-one)
 
-**Function**: reads a 4-byte big-endian four-character code from a byte buffer. FourCC identifiers label every box in an ISO 14496-12 file — `"ftyp"`, `"moov"`, `"mdat"`, etc. Drawn from [mp4parse-rust](https://github.com/mozilla/mp4parse-rust), Mozilla's Rust reimplementation of the MP4 box parser.  
+**Function**: reads a 4-byte big-endian four-character code from a byte buffer. FourCC identifiers label every box in an ISO 14496-12 file — `"ftyp"`, `"moov"`, `"mdat"`, etc. Drawn from [mp4parse-rust](https://github.com/mozilla/mp4parse-rust), Mozilla's Rust reimplementation of the MP4 box parser. A second function in the same file, `mp4_is_container_box`, was verified alongside it: given a 32-bit fourcc integer, it returns whether the box type is a known container (`moov`, `trak`, `mdia`, etc.) by checking membership in a fixed constant set.  
 **Bug**: third byte shifted by 7 instead of 8: `(s[2] as u32) << 7` instead of `<< 8`. A realistic copy-paste error when porting C bitfield assembly.
 
 | Layer | Verdict | Finding |
@@ -613,6 +613,14 @@ The boundary is clear: Crucible handles the monomorphic, FFI-exposed subset of a
 
 **L7 omega does not handle product types (Prod) or non-linear arithmetic.** When the LLM generates a theorem using tuple return types (`(s1, s2)` as `Int × Int`) rather than separate scalar theorems, `omega` cannot decompose the goal and fails even if the implementation is correct (false positive). For functions like Adler-32 whose interesting structure involves `Nat` or `Int` accumulation, the correct form is to write separate theorems for each scalar component. The LLM sometimes uses tuples; the HITL loop or a prompt addendum can steer it toward scalar theorems. Similarly, `omega` does not handle goals involving multiplication of two variables (non-linear) — LLM must express bit-shifts as multiplication by constants (which is linear and omega-compatible).
 
+**L7 and L3.5 verify LLM-extracted models, not the actual source.** The left-hand side of an L7 omega theorem and the pure core in an L3.5 Verus file are written by the LLM to summarise the Rust port. They are not formally extracted from the Rust AST. If the LLM mis-summarises the implementation — for example, omitting a branch, correcting a bug it noticed, or simplifying away an edge case — the proof is about a model that does not reflect the actual code. The formal machinery (omega, Verus SMT) guarantees that the proof is internally consistent, not that the model is faithful to the source. Human review of both the spec and the implementation side of every generated theorem is required.
+
+**L7 omega and L2 Z3 have overlapping scope on pure scalar functions.** When a function takes only integer arguments and no pointers, both L2 (Z3 bit-vector equivalence on LLVM IR) and L7 (omega on the LLM's extracted Lean4 theorem) attempt to prove equivalence over all inputs. L2's result is strictly stronger for this case: it operates on actual compiled IR from both sources rather than an LLM summary. L7 adds meaningful independent value only for functions where Z3 fails (pointer arguments, calls to external library functions like `strtol`) — cases where L2 falls back to differential fuzzing and cannot prove absence of divergences.
+
+**The `#[no_mangle]` regex injection is brittle.** Crucible injects `#[no_mangle]` via regex into a temporary copy of the Rust source before every compilation (L2 diff-fuzz and L7). The regex targets `pub [unsafe] extern "C" fn`. It will silently miss functions whose signatures span multiple lines, use macro expansion, have `#[cfg(...)]` guards that change the effective signature, or use a non-standard extern ABI spelling. When the regex misses a function, the layer skips it without any warning — a silent false PASS. Future work: parse the Rust source with `syn` rather than regex.
+
+**L1 (Clippy) and L5 (Semgrep) have overlapping findings.** Both run static pattern matching on the Rust source. The same code pattern — e.g., a bare slice index `s[0]` without an explicit bounds check — may be flagged by both a Clippy lint and a custom Semgrep rule. In CI mode, duplicate findings inflate the apparent count. The pipeline does not deduplicate across layers. This is intentional (independent tools may add context), but users reviewing a report should expect overlapping findings at L1 and L5.
+
 **The pipeline operates on function pairs, not full programs.** Crucible verifies individual functions in isolation. It does not model aliasing between functions, shared mutable state, or emergent behaviour from function composition.
 
 ---
@@ -634,9 +642,9 @@ Crucible is an answer in the form of a pipeline: eight layers, each catching wha
 - L1 (clippy) finds missing `unsafe` markers and undocumented preconditions — real FFI safety concerns — in under two seconds, on correct and incorrect ports alike.
 - L2 (diff-fuzz) catches `hexchar("FF") → 272 instead of 255`, `strtomode("777") → -1 instead of 511`, and `mp4_read_fourcc("\x01\x02\x03\x04") → 16908676 instead of 16909060` by running concrete inputs through both compiled binaries.
 - L3 (Kani) passes cleanly on fixed-size reads (`mp4_read_fourcc`), confirming Kani is well-suited to functions with bounded memory access — and correctly flags string-walking functions that exceed its unwind bound.
-- L3.5 (Verus) catches all three intentional bugs by proof, and verifies the two correct ports (`adler32` pure core, `mp4_is_container_box`) without false positives.
+- L3.5 (Verus) catches all three intentional bugs by proof; `mp4_is_container_box` verified correctly without false positives. For `adler32`, the LLM generated spec functions using non-existent Verus methods (`spec_bitand`, `spec_shr`) — a prompt engineering failure that prevented the spec from typechecking, not a false positive from the verifier.
 - L4 (Miri) found a secondary real bug in `mp4_read_fourcc`: `from_raw_parts(buf, 4)` on a short input is UB, independent of the shift bug.
-- L7 (Lean4 + Mathlib) independently caught three of the four bugs using `omega` — a linear arithmetic decision procedure that exhaustively checks the integer domain. For `hexchar`, it pinpointed the upstream hex branch (`11 ≤ a ≤ 16`). For `strtomode`, it reported `510 < n ≤ 511` as the witness. For `mp4_read_fourcc`, it identified `b2 ≥ 1` as the trigger. All three findings are machine-verified proofs, not sample-based tests.
+- L7 (Lean4 + Mathlib) independently caught three of the four bugs using `omega` — a linear arithmetic decision procedure that exhaustively checks the integer domain. For `hexchar`, it pinpointed the upstream hex branch (`11 ≤ a ≤ 16`). For `strtomode`, it reported `510 < n ≤ 511` as the witness. For `mp4_read_fourcc`, it identified `b2 ≥ 1` as the trigger. All three findings are machine-checked proofs of the LLM's extracted model of the implementation, not sample-based tests.
 
 The separation between L2, L3.5, and L7 is worth dwelling on. Differential fuzzing catches bugs you thought to test for. Verus catches bugs you did not think to test for, because it reasons about all inputs via Hoare logic. L7's omega closes the loop: it reasons exhaustively over the integer domain via linear arithmetic, independently confirming what L3.5 found by program logic. The three layers use completely different mathematical machinery, yet converge on the same bugs.
 
