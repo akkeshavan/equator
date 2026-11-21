@@ -352,7 +352,7 @@ L7's runner (`layers/lean4.py`) invokes `lake env lean <proof_file>` from that d
 
 ## Case Studies
 
-We ran Crucible against four function pairs drawn from real security-critical code.
+I ran Crucible against four function pairs drawn from real security-critical code. The tables below use the pipeline's four verdict labels: **PASS** (no finding), **AUTO_FIX** (finding recorded automatically in CI mode — includes confirmed divergences and omega counterexamples), **REVIEW** (tool found something requiring human judgement — Verus postcondition failures, Kani unwind-bound hits, Miri UB), and **ABORT** (not seen in these studies).
 
 ### Case Study 1: `sudo_hexchar` (synthetic port)
 
@@ -362,9 +362,9 @@ We ran Crucible against four function pairs drawn from real security-critical co
 | Layer | Verdict | Finding |
 |-------|---------|---------|
 | L1 | PASS | No static issues — `unsafe` markers and `# Safety` docs present |
-| L2 | **ERROR** | `sudo_hexchar(b"FF")` → C++ 255, Rust 272 |
+| L2 | **AUTO_FIX** | `sudo_hexchar(b"FF")` → C++ 255, Rust 272 |
 | L3 | REVIEW | Unwind bound hit on `strlen` (expected for pointer inputs) |
-| L3.5 | **ERROR** | Postcondition failure: `hexchar_pure('F','F')` returns 272, spec requires 255 |
+| L3.5 | REVIEW | Postcondition failure: `hexchar_pure('F','F')` returns 272, spec requires 255 |
 | L4 | PASS | No UB on concrete edge-case inputs |
 | L5 | REVIEW | Unsafe block without documented invariant; unchecked slice index |
 | L6 | PASS | |
@@ -382,7 +382,7 @@ L2 caught the bug by differential fuzz: `hexchar("FF")` → C++ 255, Rust 272. L
 | L1 | PASS | No static issues |
 | L2 | PASS | No divergence found |
 | L3 | REVIEW | Unwind bound 10 too low for NMAX=5552 iteration loop |
-| L3.5 | ERROR | LLM generated `spec_bitand`/`spec_shr` calls that don't exist on Verus `int` |
+| L3.5 | REVIEW | LLM generated `spec_bitand`/`spec_shr` calls that don't exist on Verus `int` |
 | L4 | PASS | No UB |
 | L5 | REVIEW | 3× unchecked bit-shifts from C migration; unsafe block |
 | L6 | PASS | |
@@ -398,9 +398,9 @@ The interesting result here is L3.5. For a loop-intensive function with bitwise 
 | Layer | Verdict | Finding |
 |-------|---------|---------|
 | L1 | PASS | No static issues — `unsafe` markers and `# Safety` docs present |
-| L2 | **ERROR** | `sudo_strtomode(b"777")` → C++ 511, Rust -1 |
+| L2 | **AUTO_FIX** | `sudo_strtomode(b"777")` → C++ 511, Rust -1 |
 | L3 | REVIEW | Unwind bound hit on `strlen` (expected) |
-| **L3.5** | **ERROR** | **Postcondition `ensures result == strtomode_spec(n as int)` not satisfied** |
+| **L3.5** | **REVIEW** | **Postcondition `ensures result == strtomode_spec(n as int)` not satisfied** |
 | L4 | PASS | No UB |
 | L5 | PASS | |
 | L6 | PASS | |
@@ -426,10 +426,10 @@ Both L3.5 and L7 provide stronger guarantees than L2. The L2 fuzz result says "t
 | Layer | Verdict | Finding |
 |-------|---------|---------|
 | L1 | PASS | No static issues |
-| L2 | **ERROR** | `mp4_read_fourcc(b'\x01\x02\x03\x04')` → C++ 16909060, Rust 16908676 |
+| L2 | **AUTO_FIX** | `mp4_read_fourcc(b'\x01\x02\x03\x04')` → C++ 16909060, Rust 16908676 |
 | L3 | **PASS** | Memory safety verified — fixed 4-byte read has no unbounded traversal |
-| **L3.5** | **ERROR** | Postcondition `ensures result == (b0*0x1000000) + (b1*0x10000) + (b2*0x100) + b3` fails |
-| **L4** | **ERROR** | `from_raw_parts(buf, 4)` on a 2-byte input → dangling reference (genuine UB) |
+| **L3.5** | **REVIEW** | Postcondition `ensures result == (b0*0x1000000) + (b1*0x10000) + (b2*0x100) + b3` fails |
+| **L4** | **REVIEW** | `from_raw_parts(buf, 4)` on a 2-byte input → dangling reference (genuine UB) |
 | L5 | PASS | |
 | L6 | PASS | |
 | L7 | AUTO_FIX | omega: `c ≥ 1` is a counterexample for `mp4_read_fourcc` (b2≥1 makes `b2*128 ≠ b2*256`); `mp4_is_container_box` PASS |
