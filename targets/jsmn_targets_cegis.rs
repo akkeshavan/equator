@@ -51,9 +51,14 @@ pub extern "C" fn jsmn_safe_next(pos: u32, len: u32) -> i32 {
 #[no_mangle]
 pub extern "C" fn extend_sign(x: u32, bits: u32) -> i32 {
     let shift = 32u32.wrapping_sub(bits);
+    if shift >= 32 {
+        return 0;
+    }
     let shifted = x.wrapping_shl(shift);
-    ((shifted as i32) >> (shift & 31)) as i32
+    (shifted as i32) >> shift
 }
+
+
 
 
 
