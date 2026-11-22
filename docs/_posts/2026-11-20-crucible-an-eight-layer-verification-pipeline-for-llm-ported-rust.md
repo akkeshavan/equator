@@ -128,7 +128,7 @@ Rust port   ──┘      │
 
 The pipeline is invoked as a single command:
 
-```
+```bash
 crucible run original.cpp port.rs --ci --verbose
 ```
 
@@ -320,7 +320,7 @@ The `omega` tactic is a linear arithmetic decision procedure. It either:
 - **Fails with a counterexample** (exit 1) — reports a witness value that makes the two sides differ.
 
 For the `strtomode` example above, `omega` outputs:
-```
+```text
 omega could not prove the goal:
 a possible counterexample may satisfy the constraints
   510 < n ≤ 511
@@ -408,7 +408,7 @@ The interesting result here is L3.5. For a loop-intensive function with bitwise 
 
 L2 catches the bug by input: `strtomode("777")` → C++ 511, Rust -1. L3.5 catches it by proof:
 
-```
+```text
 error: postcondition not satisfied
   --> sudo_strtomode_verus.rs:11:17
    |
@@ -617,7 +617,7 @@ The boundary is clear: Crucible handles the monomorphic, FFI-exposed subset of a
 
 **L7 omega and L2 Z3 have overlapping scope on pure scalar functions.** When a function takes only integer arguments and no pointers, both L2 (Z3 bit-vector equivalence on LLVM IR) and L7 (omega on the LLM's extracted Lean4 theorem) attempt to prove equivalence over all inputs. L2's result is strictly stronger for this case: it operates on actual compiled IR from both sources rather than an LLM summary. L7 adds meaningful independent value only for functions where Z3 fails (pointer arguments, calls to external library functions like `strtol`) — cases where L2 falls back to differential fuzzing and cannot prove absence of divergences.
 
-**The `#[no_mangle]` regex injection is brittle.** Crucible injects `#[no_mangle]` via regex into a temporary copy of the Rust source before every compilation (L2 diff-fuzz and L7). The regex targets `pub [unsafe] extern "C" fn`. It will silently miss functions whose signatures span multiple lines, use macro expansion, have `#[cfg(...)]` guards that change the effective signature, or use a non-standard extern ABI spelling. When the regex misses a function, the layer skips it without any warning — a silent false PASS. Future work: parse the Rust source with `syn` rather than regex.
+**The `#[no_mangle]` regex injection is brittle.** Crucible injects `#[no_mangle]` via regex into a temporary copy of the Rust source before every compilation (L2 Z3 and diff-fuzz). The regex targets `pub [unsafe] extern "C" fn`. It will silently miss functions whose signatures span multiple lines, use macro expansion, have `#[cfg(...)]` guards that change the effective signature, or use a non-standard extern ABI spelling. When the regex misses a function, the layer skips it without any warning — a silent false PASS. Future work: parse the Rust source with `syn` rather than regex.
 
 **L1 (Clippy) and L5 (Semgrep) have overlapping findings.** Both run static pattern matching on the Rust source. The same code pattern — e.g., a bare slice index `s[0]` without an explicit bounds check — may be flagged by both a Clippy lint and a custom Semgrep rule. In CI mode, duplicate findings inflate the apparent count. The pipeline does not deduplicate across layers. This is intentional (independent tools may add context), but users reviewing a report should expect overlapping findings at L1 and L5.
 
